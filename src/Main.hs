@@ -3,6 +3,7 @@ module Main where
 
 import Data.SBV
 import Data.Generics
+import Control.Monad (unless)
 
 type Coord = (Int, Int)
 
@@ -20,18 +21,17 @@ data Knight = Red | Blue | Yellow
 
 type SKnight = SBV Knight
 
-type Board = (SWord8, SWord8, [SSquare], [(SWord8, SWord8, SKnight)])
+type Board = (Int, Int, [SSquare], [(SWord8, SWord8, SKnight)])
 
 initBoard :: Board
 initBoard =
-    ( 4
-    , 4
-    , [ blank, blank, blank, blank
-      , blank, blank, blueGoal, blank
-      , blank, redGoal, blank, blank
-      , blank, blank, blank, blank
+    ( 3
+    , 3
+    , [ blank, redGoal, blueGoal
+      , blank, blocked, blank
+      , blank, blank, blank
       ]
-    , [ (0, 0, blue) ]
+    , [ (0, 0, red), (3, 3, blue) ]
     )
 
 type Solution = [Move]
@@ -49,10 +49,10 @@ type SMoveType = SBV MoveType
 knightAt :: SWord8 -> SWord8 -> (SWord8, SWord8, SKnight) -> SBool
 knightAt x y (kx, ky, kc) = x .== kx &&& y .== ky
 
-squareAt :: SWord8 -> SWord8 -> [SSquare] -> (SSquare -> SBool) -> SBool
-squareAt x y squares f = at sqs
+squareAt :: SWord8 -> SWord8 -> Board -> (SSquare -> SBool) -> SBool
+squareAt x y (maxX, maxY, squares, _) f = at sqs
     where
-        sqs = [ (i, j, squares !! ((j * 4) + i)) | i <- [0..3], j <- [0..3] ]
+        sqs = [ (i, j, squares !! ((j * maxX) + i)) | i <- [0..(maxX-1)], j <- [0..(maxY-1)] ]
         at []               = false
         at ((i, j, s):ss)   = ite (x .== fromIntegral i &&& y .== fromIntegral j) (f s) (at ss)
 
@@ -71,13 +71,13 @@ moveKnight :: (SWord8, SWord8, SKnight) -> SMoveType -> (SWord8, SWord8, SKnight
 moveKnight (x, y, k) m = let (tx, ty) = move x y m in (tx, ty, k)
 
 validMove :: Board -> Move -> [SBool]
-validMove (maxX, maxY, squares, knights) (x, y, m) =
-    [ x .<= maxX &&& x .>= 0 
-    , y .<= maxY &&& y .>= 0
+validMove board@(maxX, maxY, squares, knights) (x, y, m) =
+    [ x .<= fromIntegral maxX &&& x .>= 0 
+    , y .<= fromIntegral maxY &&& y .>= 0
     , bAny (knightAt x y) knights
-    , tx .<= maxX &&& tx .>= 0 
-    , ty .<= maxY &&& ty .>= 0
-    , squareAt tx ty squares (\s -> s ./= blocked)
+    , tx .<= fromIntegral maxX &&& tx .>= 0 
+    , ty .<= fromIntegral maxY &&& ty .>= 0
+    , squareAt tx ty board (\s -> s ./= blocked)
     , bnot (bAny (knightAt tx ty) knights)
     ]
     where (tx, ty) = move x y m
@@ -92,18 +92,26 @@ colourMatch k s = ite (k .== red)   (s .== redGoal)
                 $ ite (k .== blue)  (s .== blueGoal) false
 
 isSolved :: Board -> SBool
-isSolved (maxX, maxY, squares, knights) = 
-    bAll (\(kx, ky, kc) -> squareAt kx ky squares (colourMatch kc)) knights
+isSolved board@(_, _, _, knights) = 
+    bAll (\(kx, ky, kc) -> squareAt kx ky board (colourMatch kc)) knights
 
 isValid :: Board -> Solution -> SBool
 isValid board []        = isSolved board
 isValid board (m:ms)    = ite (bAnd (validMove board m)) (isValid (doMove board m) ms) false
 
-main :: IO ()
-main = do
-    res <- allSat $ do
-        x <- sWord8 "x1"
-        y <- sWord8 "y1"
-        m <- symbolic "m1"
-        return $ isValid initBoard [(x, y, m)]
+solveN :: Int -> Board -> IO Bool
+solveN n board = do
+    putStrLn $ "Checking for solution of length " ++ show n
+    res <- sat $ do
+        xs <- sWord8s $ map (\i -> "x" ++ show i) [0..n]
+        ys <- sWord8s $ map (\i -> "y" ++ show i) [0..n]
+        ms <- symbolics $ map (\i -> "m" ++ show i) [0..n]
+        return $ isValid initBoard (zip3 xs ys ms)
+
     print res
+    return $ modelExists res
+
+main :: IO ()
+main = try 1
+    where try i = do r <- solveN i initBoard
+                     unless r $ try (i+1)
