@@ -19,3 +19,6 @@ executable knightssolver
   build-depends:       base >= 4.7 && < 5
                      , sbv >= 5.11 && < 6
                      , syb >= 0.6 && < 1
+                     , containers
+                     , text
+                     , Spock >= 0.10.0.1 && < 1
