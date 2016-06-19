@@ -7,6 +7,7 @@ import qualified Data.Text as T
 import Web.Spock.Safe
 import Control.Monad.IO.Class
 import System.IO
+import qualified Data.Aeson as A
 
 testBoard :: Board
 testBoard =
@@ -19,11 +20,11 @@ testBoard =
     , [ (0, 0, Red), (2, 2, Blue) ]
     )
 
-solve :: Int -> Board -> IO (Maybe [(Int, Int, MoveType)])
-solve maxN board = try 1
+solve :: Int -> Int -> Board -> IO (Maybe [(Int, Int, MoveType)])
+solve initN maxN board = try initN
     where
         try i = do
-            r <- solveN i testBoard
+            r <- solveN i board
             if isJust r 
                 then return r 
                 else if i == maxN then return Nothing else try (i+1)
@@ -38,9 +39,16 @@ app = do
 
     post "/solve" $ do
         liftIO $ putStrLn "solve"
-        sol <- liftIO $ solve 25 testBoard
-        liftIO $ putStrLn (show sol)
-        json sol
+        b <- body
+        case (A.decodeStrict b :: Maybe Board) of
+            Just board -> do
+                liftIO $ putStrLn (show board)
+                sol <- liftIO $ solve 100 101 board
+                liftIO $ putStrLn (show sol)
+                json sol
+            Nothing -> do
+                liftIO $ putStrLn "error"
+                text "Error"
 
 main :: IO ()
 main = do

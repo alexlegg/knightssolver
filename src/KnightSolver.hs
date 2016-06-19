@@ -18,14 +18,14 @@ import Data.Aeson
 type Coord = (Int, Int)
 
 data Square = Blocked | Blank | BlueGoal | RedGoal
-    deriving (Eq, Ord, Show, Read, Data, SymWord, HasKind, SatModel)
+    deriving (Eq, Ord, Show, Read, Data, SymWord, HasKind, SatModel, FromJSON, ToJSON, G.Generic)
 
 [blocked, blank, blueGoal, redGoal] = map literal [Blocked, Blank, BlueGoal, RedGoal]
 
 type SSquare = SBV Square
 
 data Knight = Red | Blue | Yellow 
-    deriving (Eq, Ord, Show, Read, Data, SymWord, HasKind, SatModel)
+    deriving (Eq, Ord, Show, Read, Data, SymWord, HasKind, SatModel, FromJSON, ToJSON, G.Generic)
 
 [red, blue, yellow] = map literal [Red, Blue, Yellow]
 
@@ -61,14 +61,14 @@ squareAt x y (maxX, maxY, squares, _) f = at sqs
 
 move :: SWord8 -> SWord8 -> SMoveType -> (SWord8, SWord8)
 move x y m = 
-      ite (m .== upLeft)    (x-1, y+2)
-    $ ite (m .== upRight)   (x+1, y+2)
-    $ ite (m .== rightUp)   (x+2, y+1)
-    $ ite (m .== rightDown) (x+2, y-1)
-    $ ite (m .== downRight) (x+1, y-2)
-    $ ite (m .== downLeft)  (x-1, y-2)
-    $ ite (m .== leftDown)  (x-2, y-1)
-      {--(m .== leftUp)--}  (x-2, y+1)
+      ite (m .== upLeft)    (x-1, y-2)
+    $ ite (m .== upRight)   (x+1, y-2)
+    $ ite (m .== rightUp)   (x+2, y-1)
+    $ ite (m .== rightDown) (x+2, y+1)
+    $ ite (m .== downRight) (x+1, y+2)
+    $ ite (m .== downLeft)  (x-1, y+2)
+    $ ite (m .== leftDown)  (x-2, y+1)
+      {--(m .== leftUp)--}  (x-2, y-1)
 
 moveKnight :: (SWord8, SWord8, SKnight) -> SMoveType -> (SWord8, SWord8, SKnight)
 moveKnight (x, y, k) m = let (tx, ty) = move x y m in (tx, ty, k)
@@ -99,8 +99,12 @@ isSolved board@(_, _, _, knights) =
     bAll (\(kx, ky, kc) -> squareAt kx ky board (colourMatch kc)) knights
 
 isValid :: SBoard -> [Move] -> SBool
-isValid board []        = isSolved board
-isValid board (m:ms)    = ite (bAnd (validMove board m)) (isValid (doMove board m) ms) false
+isValid board [] =
+    isSolved board
+isValid board (m:ms) = 
+    ite (bAnd (validMove board m)) 
+        ((isSolved (doMove board m)) ||| (isValid (doMove board m) ms))
+        false
 
 solveN :: Int -> Board -> IO (Maybe [(Int, Int, MoveType)])
 solveN n board = do

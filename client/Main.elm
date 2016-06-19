@@ -9,6 +9,7 @@ import Svg.Attributes as SA
 import Svg.Events as SE
 import Http
 import Json.Decode as JD
+import Json.Encode as JE
 import Task
 import Debug exposing (crash)
 
@@ -54,6 +55,10 @@ type Msg =
     | GotSolution Solution
     | NextPage
     | LastPage
+    | AddRow
+    | SubRow
+    | AddCol
+    | SubCol
 
 applyMove : (Int, Int, MoveType) -> Board -> Board
 applyMove (x, y, m) board =
@@ -61,14 +66,14 @@ applyMove (x, y, m) board =
         f (i, j, k) = if x == i && y == j then (tx, ty, k) else (i, j, k)
         (tx, ty) = 
             case m of
-                UpLeft    -> (x-1, y+2)
-                UpRight   -> (x+1, y+2)
-                RightUp   -> (x+2, y+1)
-                RightDown -> (x+2, y-1)
-                DownRight -> (x+1, y-2)
-                DownLeft  -> (x-1, y-2)
-                LeftDown  -> (x-2, y-1)
-                LeftUp    -> (x-2, y+1)
+                UpLeft    -> (x-1, y-2)
+                UpRight   -> (x+1, y-2)
+                RightUp   -> (x+2, y-1)
+                RightDown -> (x+2, y+1)
+                DownRight -> (x+1, y+2)
+                DownLeft  -> (x-1, y+2)
+                LeftDown  -> (x-2, y+1)
+                LeftUp    -> (x-2, y-1)
 
     in
     { board | knights = List.map f board.knights }
@@ -93,9 +98,44 @@ decodeSolution : JD.Decoder Solution
 decodeSolution =
     JD.maybe (JD.list (JD.tuple3 (,,) JD.int JD.int decodeMoveType))
 
-solve : Platform.Task Http.Error Solution
-solve =
-    Http.post decodeSolution "http://localhost:8080/solve" Http.empty
+encodeSquare : Square -> JE.Value
+encodeSquare s =
+    case s of 
+        Blocked -> JE.string "Blocked"
+        Blank -> JE.string "Blank"
+        BlueGoal -> JE.string "BlueGoal"
+        RedGoal -> JE.string "RedGoal"
+
+encodeKnight : (Int, Int, Knight) -> JE.Value
+encodeKnight (x, y, k) =
+    let
+        k' =
+            case k of
+                Red -> "Red"
+                Blue -> "Blue"
+                Yellow -> "Yellow"
+    in
+    JE.list [JE.int x, JE.int y, JE.string k']
+
+encodeBoard : Board -> JE.Value
+encodeBoard board =
+    let
+        sList =
+            List.concat (Array.toList (Array.map Array.toList board.squares))
+    in
+    JE.list
+        [ JE.int board.maxX
+        , JE.int board.maxY
+        , JE.list (List.map encodeSquare sList)
+        , JE.list (List.map encodeKnight board.knights)
+        ]
+
+solve : Board -> Platform.Task Http.Error Solution
+solve board =
+    let
+        body = Http.string (JE.encode 0 (encodeBoard board))
+    in
+    Http.post decodeSolution "http://localhost:8080/solve" body
 
 init : (Model, Cmd.Cmd Msg)
 init =
@@ -133,7 +173,7 @@ update msg model =
             ({ model | squareBrush = Nothing, knightBrush = k}, Cmd.none)
         Solve ->
             ( model
-            , Task.perform Error GotSolution solve
+            , Task.perform Error GotSolution (solve model.board)
             )
         Reset ->
             ( { model | solution = Nothing, solutionPage = 0 }
@@ -149,8 +189,40 @@ update msg model =
             ( { model | solutionPage = max (model.solutionPage-1) 0 }
             , Cmd.none
             )
+        AddRow ->
+            ( { model | board = addRow model.board }
+            , Cmd.none
+            )
+        SubRow ->
+            ( { model | board = subRow model.board }
+            , Cmd.none
+            )
+        AddCol ->
+            ( { model | board = addCol model.board }
+            , Cmd.none
+            )
+        SubCol ->
+            ( { model | board = subCol model.board }
+            , Cmd.none
+            )
         Error s ->
             crash (toString s) ( model, Cmd.none )
+
+addRow : Board -> Board
+addRow board =
+    { board | maxY = min 5 (board.maxY + 1), squares = Array.push (Array.repeat board.maxX Blank) board.squares }
+
+subRow : Board -> Board
+subRow board =
+    { board | maxY = max 0 (board.maxY - 1), squares = Array.slice 0 -1 board.squares }
+
+addCol : Board -> Board
+addCol board =
+    { board | maxX = min 5 (board.maxX + 1), squares = Array.map (Array.push Blank) board.squares }
+
+subCol : Board -> Board
+subCol board =
+    { board | maxX = max 0 (board.maxX - 1), squares = Array.map (Array.slice 0 -1) board.squares }
 
 updateBoard : Int -> Int -> Maybe Square -> Maybe Knight -> Board -> Board
 updateBoard x y sb kb board =
@@ -218,6 +290,19 @@ view model =
                 , Html.button 
                     [Html.Events.onClick Solve] 
                     [Html.text "Solve"]
+                , Html.br [] []
+                , Html.button
+                    [Html.Events.onClick AddRow] 
+                    [Html.text "Add Row"]
+                , Html.button
+                    [Html.Events.onClick SubRow] 
+                    [Html.text "Sub Row"]
+                , Html.button
+                    [Html.Events.onClick AddCol] 
+                    [Html.text "Add Col"]
+                , Html.button
+                    [Html.Events.onClick SubCol] 
+                    [Html.text "Sub Col"]
                 ]
             else
                 [ Html.button
