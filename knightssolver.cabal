@@ -21,4 +21,6 @@ executable knightssolver
                      , syb >= 0.6 && < 1
                      , containers
                      , text
+                     , transformers
+                     , aeson >= 0.9.0.1 && < 0.10
                      , Spock >= 0.10.0.1 && < 1

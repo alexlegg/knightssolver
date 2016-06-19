@@ -1,11 +1,16 @@
 import Html
 import Html.Attributes
+import Html.Events
 import Html.App
 import Color
 import Array exposing (Array)
 import Svg as S
 import Svg.Attributes as SA
 import Svg.Events as SE
+import Http
+import Json.Decode as JD
+import Task
+import Debug exposing (crash)
 
 main = 
     Html.App.program
@@ -19,6 +24,10 @@ type Square = Blocked | Blank | BlueGoal | RedGoal
 
 type Knight = Red | Blue | Yellow
 
+type MoveType = UpLeft | UpRight | RightUp | RightDown | DownRight | DownLeft | LeftDown | LeftUp
+
+type alias Solution = Maybe (List (Int, Int, MoveType))
+
 type alias Board =
     { maxX : Int
     , maxY : Int
@@ -30,9 +39,63 @@ type alias Model =
     { board : Board
     , squareBrush : Maybe Square
     , knightBrush : Maybe Knight
+    , solution : Solution
+    , solutionPage : Int
     }
 
-type Msg = Noop | Click Int Int | SquareBrush Square | KnightBrush (Maybe Knight) | Solve
+type Msg = 
+      Noop 
+    | Click Int Int 
+    | SquareBrush Square 
+    | KnightBrush (Maybe Knight) 
+    | Solve
+    | Reset
+    | Error Http.Error
+    | GotSolution Solution
+    | NextPage
+    | LastPage
+
+applyMove : (Int, Int, MoveType) -> Board -> Board
+applyMove (x, y, m) board =
+    let
+        f (i, j, k) = if x == i && y == j then (tx, ty, k) else (i, j, k)
+        (tx, ty) = 
+            case m of
+                UpLeft    -> (x-1, y+2)
+                UpRight   -> (x+1, y+2)
+                RightUp   -> (x+2, y+1)
+                RightDown -> (x+2, y-1)
+                DownRight -> (x+1, y-2)
+                DownLeft  -> (x-1, y-2)
+                LeftDown  -> (x-2, y-1)
+                LeftUp    -> (x-2, y+1)
+
+    in
+    { board | knights = List.map f board.knights }
+
+decodeMoveType : JD.Decoder MoveType
+decodeMoveType =
+    let
+        f s = case s of
+            "UpLeft" -> UpLeft
+            "UpRight" -> UpRight
+            "RightUp" -> RightUp
+            "RightDown" -> RightDown
+            "DownRight" -> DownRight
+            "DownLeft" -> DownLeft
+            "LeftDown" -> LeftDown
+            "LeftUp" -> LeftUp
+            _ -> crash "Bad data from server"
+    in
+    JD.map f JD.string
+
+decodeSolution : JD.Decoder Solution
+decodeSolution =
+    JD.maybe (JD.list (JD.tuple3 (,,) JD.int JD.int decodeMoveType))
+
+solve : Platform.Task Http.Error Solution
+solve =
+    Http.post decodeSolution "http://localhost:8080/solve" Http.empty
 
 init : (Model, Cmd.Cmd Msg)
 init =
@@ -52,6 +115,8 @@ init =
         }
     , squareBrush = Nothing
     , knightBrush = Nothing
+    , solution = Nothing
+    , solutionPage = 0
     }
     , Cmd.none )
 
@@ -66,6 +131,26 @@ update msg model =
             ({ model | squareBrush = Just s, knightBrush = Nothing}, Cmd.none)
         KnightBrush k ->
             ({ model | squareBrush = Nothing, knightBrush = k}, Cmd.none)
+        Solve ->
+            ( model
+            , Task.perform Error GotSolution solve
+            )
+        Reset ->
+            ( { model | solution = Nothing, solutionPage = 0 }
+            , Cmd.none
+            )
+        GotSolution sol ->
+            ({ model | solution = sol }, Cmd.none )
+        NextPage ->
+            ( { model | solutionPage = min (model.solutionPage+1) (List.length (maybeList model.solution)) }
+            , Cmd.none
+            )
+        LastPage ->
+            ( { model | solutionPage = max (model.solutionPage-1) 0 }
+            , Cmd.none
+            )
+        Error s ->
+            crash (toString s) ( model, Cmd.none )
 
 updateBoard : Int -> Int -> Maybe Square -> Maybe Knight -> Board -> Board
 updateBoard x y sb kb board =
@@ -92,8 +177,30 @@ modifyArray i f arr =
 
 squareSize = 64
 
+isNothing : Maybe a -> Bool
+isNothing x =
+    case x of
+        Just _ -> False
+        Nothing -> True
+
+isJust : Maybe a -> Bool
+isJust x =
+    not (isNothing x)
+
+maybeList : Maybe (List a) -> List a
+maybeList m =
+    case m of
+        Just xs -> xs
+        Nothing -> []
+
 view : Model -> Html.Html Msg
 view model =
+    let
+        title =
+            if isNothing model.solution then "Edit Puzzle" else "Solution"
+        currMoves =
+            List.take model.solutionPage (maybeList model.solution)
+    in
     Html.div 
         [ Html.Attributes.style
             [ ("width", "500px")
@@ -101,37 +208,69 @@ view model =
             , ("padding-top", "100px")
             ]
         ]
-        [ viewBoard model.board
-        , Html.button 
-            [Html.Attributes.onClick Solve] 
-            [Html.text "Solve"]
+        ([ Html.h1 [] [Html.text title]
+        , viewBoard (List.foldl applyMove model.board currMoves)
+        , Html.hr [] []
+        ] ++ if isNothing model.solution
+            then 
+                [ viewPalette
+                , Html.br [] []
+                , Html.button 
+                    [Html.Events.onClick Solve] 
+                    [Html.text "Solve"]
+                ]
+            else
+                [ Html.button
+                    [Html.Events.onClick LastPage] 
+                    [Html.text "<"]
+                , Html.text 
+                    (" " 
+                    ++ (toString model.solutionPage) 
+                    ++ " / " 
+                    ++ (toString (List.length (maybeList model.solution))) 
+                    ++ " ")
+                , Html.button
+                    [Html.Events.onClick NextPage] 
+                    [Html.text ">"]
+                , Html.br [] []
+                , Html.button 
+                    [Html.Events.onClick Reset] 
+                    [Html.text "Reset"]
+                ]
+        )
+
+viewPalette : Html.Html Msg
+viewPalette =
+    let 
+        clickBrush b _ _ _ = b
+    in
+    S.svg 
+        [ SA.width "320", SA.height "128", SA.viewBox "0 0 320 128" ]
+        [ viewSquare (clickBrush (SquareBrush Blank)) Blank 0 0
+        , viewSquare (clickBrush (SquareBrush Blocked)) Blocked 1 0
+        , viewSquare (clickBrush (SquareBrush RedGoal)) RedGoal 2 0
+        , viewSquare (clickBrush (SquareBrush BlueGoal)) BlueGoal 3 0
+        , viewSquare (clickBrush (KnightBrush Nothing)) Blank 0 1
+        , viewSquare (clickBrush (KnightBrush (Just Red))) Blank 1 1
+        , viewSquare (clickBrush (KnightBrush (Just Blue))) Blank 2 1
+        , viewSquare (clickBrush (KnightBrush (Just Yellow))) Blank 3 1
+        , viewKnight (\_ _ -> KnightBrush (Just Red)) (1, 1, Red)
+        , viewKnight (\_ _ -> KnightBrush (Just Blue)) (2, 1, Blue)
+        , viewKnight (\_ _ -> KnightBrush (Just Yellow)) (3, 1, Yellow)
         ]
 
 viewBoard : Board -> Html.Html Msg
 viewBoard board =
     let 
         clickBoard s x y = Click x y
-        clickBrush b _ _ _ = b
         f (y, sr) =
             List.map (\(x, s) -> viewSquare clickBoard s x y) (Array.toIndexedList sr)
     in
-        S.svg 
-            [ SA.width "500", SA.height "600", SA.viewBox "0 0 500 500" ]
-            ( List.concat (List.map f (Array.toIndexedList board.squares))
-            ++ List.map (viewKnight Click) board.knights
-            ++ [ viewSquare (clickBrush (SquareBrush Blank)) Blank 0 6
-                , viewSquare (clickBrush (SquareBrush Blocked)) Blocked 1 6
-                , viewSquare (clickBrush (SquareBrush RedGoal)) RedGoal 2 6
-                , viewSquare (clickBrush (SquareBrush BlueGoal)) BlueGoal 3 6
-                , viewSquare (clickBrush (KnightBrush Nothing)) Blank 0 7
-                , viewSquare (clickBrush (KnightBrush (Just Red))) Blank 1 7
-                , viewSquare (clickBrush (KnightBrush (Just Blue))) Blank 2 7
-                , viewSquare (clickBrush (KnightBrush (Just Yellow))) Blank 3 7
-                , viewKnight (\_ _ -> KnightBrush (Just Red)) (1, 7, Red)
-                , viewKnight (\_ _ -> KnightBrush (Just Blue)) (2, 7, Blue)
-                , viewKnight (\_ _ -> KnightBrush (Just Yellow)) (3, 7, Yellow)
-                ]
-            )
+    S.svg 
+        [ SA.width "320", SA.height "320", SA.viewBox "0 0 320 320" ]
+        ( List.concat (List.map f (Array.toIndexedList board.squares))
+        ++ List.map (viewKnight Click) board.knights
+        )
 
 
 viewSquare : (Square -> Int -> Int -> Msg) -> Square -> Int -> Int -> S.Svg Msg

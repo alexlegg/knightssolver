@@ -5,6 +5,8 @@ import KnightSolver
 import Data.Maybe
 import qualified Data.Text as T
 import Web.Spock.Safe
+import Control.Monad.IO.Class
+import System.IO
 
 testBoard :: Board
 testBoard =
@@ -14,7 +16,7 @@ testBoard =
       , Blank, Blocked, Blank
       , Blank, Blank, Blank
       ]
-    , [ (0, 0, Red), (3, 3, Blue) ]
+    , [ (0, 0, Red), (2, 2, Blue) ]
     )
 
 solve :: Int -> Board -> IO (Maybe [(Int, Int, MoveType)])
@@ -34,5 +36,14 @@ app = do
     get "/app.js" $ do
         file "text/javascript" "static/app.js"
 
+    post "/solve" $ do
+        liftIO $ putStrLn "solve"
+        sol <- liftIO $ solve 25 testBoard
+        liftIO $ putStrLn (show sol)
+        json sol
+
 main :: IO ()
-main = runSpock 8080 $ spockT id app
+main = do
+    hSetBuffering stdout LineBuffering
+    putStrLn "Running on port 8080"
+    runSpock 8080 $ spockT id app

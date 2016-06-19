@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, DeriveAnyClass #-}
+{-# LANGUAGE DeriveDataTypeable, DeriveAnyClass, DeriveGeneric #-}
 module KnightSolver 
     ( Square(..)
     , Knight(..)
@@ -9,9 +9,11 @@ module KnightSolver
 
 import Data.SBV
 import Data.Generics
+import qualified GHC.Generics as G
 import Data.Maybe
 import qualified Data.Map as Map
 import Control.Monad (unless)
+import Data.Aeson
 
 type Coord = (Int, Int)
 
@@ -40,7 +42,7 @@ makeSymbolic (maxX, maxY, squares, knights) =
 type Move = (SWord8, SWord8, SMoveType)
 
 data MoveType = UpLeft | UpRight | RightUp | RightDown | DownRight | DownLeft | LeftDown | LeftUp
-    deriving (Eq, Ord, Show, Read, Data, SymWord, HasKind, SatModel)
+    deriving (Eq, Ord, Show, Read, Data, SymWord, HasKind, SatModel, G.Generic, ToJSON)
 
 [upLeft, upRight, rightUp, rightDown, downRight, downLeft, leftDown, leftUp] =
     map literal [UpLeft, UpRight, RightUp, RightDown, DownRight, DownLeft, LeftDown, LeftUp]
