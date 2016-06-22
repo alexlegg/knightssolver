@@ -42,7 +42,7 @@ makeSymbolic (maxX, maxY, squares, knights) =
 type Move = (SWord8, SWord8, SMoveType)
 
 data MoveType = UpLeft | UpRight | RightUp | RightDown | DownRight | DownLeft | LeftDown | LeftUp
-    deriving (Eq, Ord, Show, Read, Data, SymWord, HasKind, SatModel, G.Generic, ToJSON)
+    deriving (Eq, Ord, Show, Read, Data, SymWord, HasKind, SatModel, G.Generic, ToJSON, Enum)
 
 [upLeft, upRight, rightUp, rightDown, downRight, downLeft, leftDown, leftUp] =
     map literal [UpLeft, UpRight, RightUp, RightDown, DownRight, DownLeft, LeftDown, LeftUp]

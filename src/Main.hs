@@ -2,6 +2,7 @@
 module Main where
 
 import KnightSolver
+import BacktrackKS
 import Data.Maybe
 import qualified Data.Text as T
 import Web.Spock.Safe
@@ -24,7 +25,7 @@ solve :: Int -> Int -> Board -> IO (Maybe [(Int, Int, MoveType)])
 solve initN maxN board = try initN
     where
         try i = do
-            r <- solveN i board
+            let r = btSolveN i board
             if isJust r 
                 then return r 
                 else if i == maxN then return Nothing else try (i+1)
@@ -43,7 +44,7 @@ app = do
         case (A.decodeStrict b :: Maybe Board) of
             Just board -> do
                 liftIO $ putStrLn (show board)
-                sol <- liftIO $ solve 100 101 board
+                sol <- liftIO $ solve 1 20 board
                 liftIO $ putStrLn (show sol)
                 json sol
             Nothing -> do
@@ -53,5 +54,4 @@ app = do
 main :: IO ()
 main = do
     hSetBuffering stdout LineBuffering
-    putStrLn "Running on port 8080"
     runSpock 8080 $ spockT id app
